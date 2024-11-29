@@ -12,8 +12,8 @@
 //!
 //! References:
 //! - [MRL Framework](https://arxiv.org/abs/2205.13147)
-//! - [Model Card](https://huggingface.co/dunzhang/stella_en_1.5B_v5)
-//!
+//! - [Model Card 1.5B](https://huggingface.co/dunzhang/stella_en_1.5B_v5)
+//! - [Model Card 400M](https://huggingface.co/dunzhang/stella_en_400M_v5)
 
 use crate::models::with_tracing::{linear, linear_no_bias, Linear, RmsNorm};
 use candle::{DType, Device, Error, IndexOp, Module, Result, Tensor, D};
@@ -65,7 +65,9 @@ pub struct EmbedHead {
 }
 
 /// An enum variant representing the Embedding head dimensions `stella` is trained on
-/// As the [model-card](https://huggingface.co/dunzhang/stella_en_1.5B_v5#introduction) suggests, D1024 is good enough for most cases
+/// 1.5B Variant: [model-card 1.5B](https://huggingface.co/dunzhang/stella_en_1.5B_v5#introduction) suggests, D1024 is good enough most cases
+/// 400M Variant: [model-card 400M](https://huggingface.co/dunzhang/stella_en_400M_v5#faq) recommends D512
+/// however, we required weights for `2_Dense_512` have not been published by the author.
 #[derive(Debug, Clone, Copy)]
 pub enum EmbedDim {
     Dim256,
@@ -188,9 +190,6 @@ impl RotaryEmbedding {
             .to_dtype(dtype)?
             .reshape((max_seq_len, 1))?;
         let freqs = t.matmul(&inv_freq)?;
-        // if cfg.variant == ModelVariant::Small {
-        //     freqs = Tensor::cat(&[&freqs, &freqs], 1)?
-        // }
 
         Ok(Self {
             sin: freqs.sin()?,
@@ -198,7 +197,6 @@ impl RotaryEmbedding {
         })
     }
 
-    // TODO: re-visit this
     fn apply_rotary_emb_qkv(&self, q: &Tensor, k: &Tensor) -> Result<(Tensor, Tensor)> {
         let (_b_sz, _h, seq_len, _n_embd) = q.dims4()?;
         let cos = self.cos.narrow(0, 0, seq_len)?;
@@ -689,8 +687,7 @@ impl Model {
             ModelVariant::Large => vb.pp("model"),
             ModelVariant::Small => vb.pp("new"),
         };
-        // let embed_tokens =
-        //     candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb_m.pp("embed_tokens"))?;
+
         let embeddings = Embeddings::new(cfg, vb_m.clone())?;
         let rotary_emb = Arc::new(RotaryEmbedding::new(vb.dtype(), cfg, vb_m.device())?);
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
